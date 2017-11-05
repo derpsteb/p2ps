@@ -1,0 +1,19 @@
+{
+  "name": "p2ps",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "buffer": "^5.0.8",
+    "crypto": "^1.0.1",
+    "crypto-js": "^3.1.9-1",
+    "magnet-uri": "^5.1.7",
+    "urn-parser": "^1.0.0",
+    "webtorrent-dht": "^0.3.0"
+  }
+}
