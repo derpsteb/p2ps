@@ -3062,6 +3062,7 @@ function hasOwnProperty(obj, prop) {
 let DHT = require("webtorrent-dht");
 global.magnet = require("magnet-uri");
 global.buffer = require("buffer").Buffer;
+let inherits = require('inherits');
 global.startUp = startUp;
 startUp();
 global.retrieve = retrieve;
@@ -3070,9 +3071,10 @@ global.showConnectedIds = showConnectedIds;
 global.testPing = testPing;
 global.lookup = lookup;
 global.showId = showId;
+global.testAnnounce = testAnnounce;
 
 function startUp () {
-	global.dht = DHT({
+	let options = {
 		nodes: [{
 			host: "127.0.0.1",
 			port: 16881
@@ -3082,8 +3084,9 @@ function startUp () {
 				iceServers: []
 			}
 		}
-	});
-	//global.dht._onquery = customOnQuery;
+	};
+	global.dht = DHT.call(this, options);
+	global.dht._onquery = customOnQuery;
 	localStorage.debug = "webtorrent-dht";
 }
 
@@ -3109,9 +3112,22 @@ function retrieve (link) {
 	});
 }
 
+function testAnnounce(hash){
+	this.dht.announce(hash, (err) => {
+		if(err !== null){
+			console.log("Error: " + err);
+		}else{
+			console.log("testAnnounce successfully completed");
+		}
+	});
+}
+
 function lookup (link) {
-	let hash = this.magnet.decode(link).infoHash;
-	this.dht.lookup(hash, (err, res) => {
+	//let hash = this.magnet.decode(link).infoHash;
+	this.dht.on("peer", (peer, infoHash, from) => {
+		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
+	});
+	this.dht.lookup(link, (err, res) => {
 		console.log("errors: " + err);
 		if (res === null) {
 			console.log("No Data found.");
@@ -3119,6 +3135,7 @@ function lookup (link) {
 			console.log("Retrieved value: " + res.toString());
 		}
 	});
+	this.dht.announce(link);
 }
 
 function createLink (hash) {
@@ -3134,27 +3151,29 @@ function createLink (hash) {
 function showConnectedIds () {
 	let dict = global.dht._rpc.socket.socket.peer_connections;
 	for (var key in dict) {
-		console.log(dict[key]);
+		console.log(dict[key]["id"]);
 	}
 }
 
 function customOnQuery (query, peer) {
+	console.log("received query in DHT.customOnQuery: " + query.q);
 	let q = query.q.toString();
 	global.dht._debug("received %s query from %s:%d", q, peer.address, peer.port);
 	if (!query.a) return;
 
 	switch (q) {
 	case "ping":
-		//return global.dht._rpc.response(peer, query, {id: global.dht._rpc.id});
 		console.log("wtf");
-		break;
+		return global.dht._rpc.response(peer, query, {id: global.dht._rpc.id});
+		//break;
 
 	case "find_node":
-		//return global.dht._onfindnode(query, peer);
 		console.log("gimmemileftnut");
-		break;
+		return global.dht._onfindnode(query, peer);
+		//break;
 
 	case "get_peers":
+		console.log("getPeeeeeers:!!!");
 		return global.dht._ongetpeers(query, peer);
 
 	case "announce_peer":
@@ -3164,10 +3183,11 @@ function customOnQuery (query, peer) {
 		return global.dht._onget(query, peer);
 
 	case "put":
+		console.log("putttyyyyy");
 		return global.dht._onput(query, peer);
 
 	case "custom":
-		return
+		return null;
 	}
 }
 
@@ -3181,7 +3201,7 @@ function showId(){
 	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"buffer":4,"magnet-uri":35,"webtorrent-dht":58}],13:[function(require,module,exports){
+},{"buffer":4,"inherits":27,"magnet-uri":35,"webtorrent-dht":58}],13:[function(require,module,exports){
 (function (Buffer){
 const INTEGER_START = 0x69 // 'i'
 const STRING_DELIM = 0x3A // ':'
@@ -3521,6 +3541,12 @@ function DHT (opts) {
   this._rpc.on('warning', onwarning)
   this._rpc.on('error', onerror)
   this._rpc.on('listening', onlistening)
+
+  console.log("imhere")
+  this.on("peer", (peer, infoHash, from) => {
+		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
+	});
+
   this._rotateSecrets()
   this._verify = opts.verify || null
   this._host = opts.host || null
@@ -3544,6 +3570,7 @@ function DHT (opts) {
   }
 
   function onquery (query, peer) {
+    console.log('received query in DHT with type: ' + query.q + " peer: " + JSON.stringify(peer));
     self._onquery(query, peer)
   }
 
@@ -3664,7 +3691,6 @@ DHT.prototype._put = function (opts, cb) {
 
   var table = this._tables.get(key.toString('hex'))
   if (!table) return this._preput(key, opts, cb)
-  console.log("table beeing like: " + JSON.stringify(table) + " | closest: " + table.closest(key));
 
   var message = {
     q: 'put',
@@ -3685,12 +3711,10 @@ DHT.prototype._put = function (opts, cb) {
   }
 
   this._values.set(key.toString('hex'), message.a)
-  let closestNode = table.closest(key);
-  if (!closestNode) closestNode = this._preput(key, opts, cb);
-  this._rpc.queryAll(closestNode, message, null, function (err, n) {
-			if (err) return cb(err, key, n)
-			cb(null, key, n)
-		})
+  this._rpc.queryAll(table.closest(key), message, null, function (err, n) {
+    if (err) return cb(err, key, n)
+    cb(null, key, n)
+  })
 
   return key
 }
@@ -3809,6 +3833,7 @@ DHT.prototype._preannounce = function (infoHash, port, cb) {
 }
 
 DHT.prototype.lookup = function (infoHash, cb) {
+  console.log("calling lookup")
   infoHash = toBuffer(infoHash)
   if (!cb) cb = noop
   var self = this
@@ -3825,16 +3850,21 @@ DHT.prototype.lookup = function (infoHash, cb) {
   }, onreply, cb)
 
   function emit (values, from) {
-    if (!values) values = self._peers.get(infoHash.toString('hex'))
-    var peers = decodePeers(values)
-    for (var i = 0; i < peers.length; i++) {
+		console.log("emitting " + values)
+		if (!values) values = self._peers.get(infoHash.toString('hex'))
+		var peers = decodePeers(values)
+		console.log("and " + peers)
+		for (var i = 0; i < peers.length; i++) {
       self.emit('peer', peers[i], infoHash, from || null)
     }
   }
 
   function onreply (message, node) {
     if (aborted) return false
-    if (message.r.values) emit(message.r.values, node)
+    if (message.r.values) {
+      debug("receiver get_peers reply: " + JSON.stringify(message.r.values));
+      emit(message.r.values, node)
+		}
   }
 
   return function abort () { aborted = true }
@@ -3865,6 +3895,7 @@ DHT.prototype.destroy = function (cb) {
 }
 
 DHT.prototype._onquery = function (query, peer) {
+  console.log('received query in DHT._onquery with type: ' + query.q)
   var q = query.q.toString()
   this._debug('received %s query from %s:%d', q, peer.address, peer.port)
   if (!query.a) return
@@ -5741,8 +5772,7 @@ function RPC (opts) {
 
   function onmessage (buf, rinfo) {
     if (self.destroyed) return
-    if (!rinfo.port) return // seems like a node bug that this is nessesary?
-
+		if (!rinfo.port) return // seems like a node bug that this is nessesary?
     try {
       var message = bencode.decode(buf)
     } catch (e) {
@@ -5751,8 +5781,10 @@ function RPC (opts) {
 
     var type = message && message.y && message.y.toString()
 
+		console.log("received message in k-rpc-socket with type " + type);
+
     if (type === 'r' || type === 'e') {
-      if (!Buffer.isBuffer(message.t)) return
+			if (!Buffer.isBuffer(message.t)) return
 
       try {
         var tid = message.t.readUInt16BE(0)
@@ -5965,6 +5997,7 @@ function RPC (opts) {
   }
 
   function onquery (query, peer) {
+    console.log('received query in k-rpc with type: ' + query.q);
     addNode(query.a, peer)
     self.emit('query', query, peer)
   }
@@ -6083,8 +6116,6 @@ RPC.prototype._addNode = function (node) {
 }
 
 RPC.prototype._closest = function (target, message, background, visit, cb) {
-	debug(console.trace());
-  debug(`in k-rpc: ${target.toString('hex')} ${JSON.stringify(message)} ${background} ${visit}`)
   if (!cb) cb = noop
 
   var self = this
@@ -10460,20 +10491,20 @@ function config (name) {
   webrtcSocket = require('./webrtc-socket');
   module.exports = kRpcSocketWebrtc;
   noop = function(){};
-  function parse_nodes(buffer){
-    var nodes, res$, i$, to$, i;
+  function parse_nodes(buffer, id_space){
+    var nodes, res$, i$, step$, to$, i;
     res$ = [];
-    for (i$ = 0, to$ = buffer.length; i$ < to$; i$ += 26) {
+    for (i$ = 0, to$ = buffer.length, step$ = id_space + 6; step$ < 0 ? i$ > to$ : i$ < to$; i$ += step$) {
       i = i$;
-      res$.push(parse_node(buffer.slice(i, i + 26)));
+      res$.push(parse_node(buffer.slice(i, i + id_space + 6), id_space));
     }
     nodes = res$;
     return nodes.filter(Boolean);
   }
-  function parse_node(buffer){
+  function parse_node(buffer, id_space){
     var id, ref$, host, port;
-    id = buffer.slice(0, 20);
-    ref$ = parse_info(buffer.slice(20, 26)), host = ref$.host, port = ref$.port;
+    id = buffer.slice(0, id_space);
+    ref$ = parse_info(buffer.slice(id_space, id_space + 6)), host = ref$.host, port = ref$.port;
     return {
       id: id,
       host: host,
@@ -10493,7 +10524,7 @@ function config (name) {
     var info;
     id = Buffer.from(id);
     info = encode_info(ip, port);
-    return Buffer.concat([id, info], 26);
+    return Buffer.concat([id, info]);
   }
   function encode_info(ip, port){
     var x$;
@@ -10511,7 +10542,6 @@ function config (name) {
     if (!(this instanceof kRpcSocketWebrtc)) {
       return new kRpcSocketWebrtc(options);
     }
-    options.k = 2;
     if (!options.k) {
       throw new Error('k-rpc-socket-webrtc requires options.k to be specified explicitly');
     }
@@ -10524,6 +10554,8 @@ function config (name) {
     } else {
       this.id = Buffer.from(options.id, 'hex');
     }
+    this._id_space = options.id.length;
+    options = Object.assign({}, options);
     options.socket = options.socket || webrtcSocket(options);
     options.isIP = isIP;
     kRpcSocket.call(this, options);
@@ -10535,7 +10567,7 @@ function config (name) {
   inherits(kRpcSocketWebrtc, noop);
   x$ = kRpcSocketWebrtc.prototype;
   x$.send = function(peer, message, callback){
-    debug('send to peer: %o', arguments);
+    debug('send to peer: %o, tmp: %s ', arguments, JSON.stringify(message));
     kRpcSocket.prototype.send.call(this, peer, message, callback);
   };
   x$.response = function(peer, query, response, callback){
@@ -10543,23 +10575,22 @@ function config (name) {
     debug('response: %o', arguments);
     response = Object.assign({}, response);
     switch (query.q.toString()) {
-    case 'find_node': console.log("fuckyou1");
-    case 'get_peers': console.log("fuckyou2");
+    case 'find_node':
+    case 'get_peers':
     case 'get':
       /**
        * Before sending response we'll send signaling data to selected nodes and will pass signaling data back to querying node so that it can then
        * establish connection if needed
        */
-      console.log("fuckyou3");
       signals = query.a.signals;
       if (!Array.isArray(signals)) {
         return;
       }
       if (response.nodes) {
-        if (response.nodes.length / 26 > signals.length) {
-          response.nodes.length = signals.length * 26;
+        if (response.nodes.length / (this._id_space + 6) > signals.length) {
+          response.nodes.length = signals.length * (this._id_space + 6);
         }
-        peers = parse_nodes(response.nodes);
+        peers = parse_nodes(response.nodes, this._id_space);
       } else if (response.values) {
         if (response.values.length > signals.length) {
           response.values.length = signals.length;
@@ -10611,11 +10642,9 @@ function config (name) {
       });
       break;
     default:
-      console.log("fuckyou4");
       kRpcSocket.prototype.response.call(this, peer, query, response, callback);
     }
   };
-  //Create query meassage and call send method
   x$.query = function(peer, query, callback){
     var i, this$ = this;
     debug('query: %o', arguments);
@@ -10700,7 +10729,7 @@ function config (name) {
                       x$.on('connect', function(){
                         this$.socket.add_id_mapping(signal_id_hex, peer_connection);
                         if (response.r.nodes) {
-                          resolve(encode_node(response.r.nodes.slice(i * 26, i * 26 + 20), peer_connection.remoteAddress, peer_connection.remotePort));
+                          resolve(encode_node(response.r.nodes.slice(i * this$._id_space + 6, i * (this$._id_space + 6) + this$._id_space), peer_connection.remoteAddress, peer_connection.remotePort));
                         } else if (response.r.values) {
                           resolve(encode_info(peer_connection.remoteAddress, peer_connection.remotePort));
                         }
@@ -10719,7 +10748,7 @@ function config (name) {
           }.call(this$))).then(function(peers){
             peers = peers.filter(Boolean);
             if (response.r.nodes) {
-              response.r.nodes = Buffer.concat(peers, peers.length * 26);
+              response.r.nodes = Buffer.concat(peers, peers.length * (this$._id_space + 6));
             } else if (response.r.values) {
               response.r.values = peers;
             }
@@ -10733,6 +10762,7 @@ function config (name) {
     }
   };
   x$.emit = function(event){
+    console.log("calling emit in k-rpc-socket-webrtc with: " + event);
     var args, res$, i$, to$, message, peer, ref$, ref1$, ref2$, signal, signal_id_hex, x$, peer_connection, ref3$, this$ = this;
     res$ = [];
     for (i$ = 1, to$ = arguments.length; i$ < to$; ++i$) {
@@ -10750,7 +10780,6 @@ function config (name) {
         if (((ref2$ = message.a) != null ? ref2$.signal : void 8) != null) {
           signal = message.a.signal;
           signal_id_hex = signal.id.toString('hex');
-          //Check if message is directed to oneself?
           if (signal_id_hex === this.id.toString('hex') || this.socket.get_id_mapping(signal_id_hex)) {
             this.response(peer, message, {
               id: this.id,
@@ -10823,10 +10852,10 @@ function config (name) {
       return new kRpcWebrtc(options);
     }
     options = Object.assign({}, options);
-    options.id = options.id || options.nodeId || randombytes(20);
+    options.id = options.id || options.nodeId || randombytes(options.idSpace || 20);
+    options.k = options.k || K;
     options.krpcSocket = options.krpcSocket || kRpcSocketWebrtc(options);
     options.bootstrap = options.nodes || options.bootstrap || BOOTSTRAP_NODES;
-    options.k = options.k || K;
     kRpc.call(this, options);
     this.socket.socket.on('node_disconnected', function(id){
       this$.nodes.remove(Buffer.from(id, 'hex'));
@@ -10871,11 +10900,8 @@ function config (name) {
     this.simple_peer_opts = Object.assign({}, SIMPLE_PEER_OPTS, options.simple_peer_opts);
     this.ws_address = options.ws_address;
     this.listeners = [];
-    //Directly connected peers - dict of peers
     this.peer_connections = {};
-    //Connected ws servers?
     this.ws_connections_aliases = {};
-    //Array of Promises. Opened but not connected connections?
     this.pending_peer_connections = {};
     this.connections_id_mapping = {};
   }
@@ -10953,13 +10979,11 @@ function config (name) {
     }
   };
   x$.emit = function(eventName){
-    //why overwrite the original method?
     var args, res$, i$, to$, ref$, len$, listener, results$ = [];
     res$ = [];
     for (i$ = 1, to$ = arguments.length; i$ < to$; ++i$) {
       res$.push(arguments[i$]);
     }
-    //why not just use 'arguments'?
     args = res$;
     if (this.listeners[eventName]) {
       for (i$ = 0, len$ = (ref$ = this.listeners[eventName]).length; i$ < len$; ++i$) {
@@ -10973,19 +10997,14 @@ function config (name) {
     var ref$;
     ((ref$ = this.listeners)[eventName] || (ref$[eventName] = [])).push(listener);
   };
-  //This function utilizes the send function of SimplePeer
   x$.send = function(buffer, offset, length, port, address, callback){
-    console.trace();
-		var this$ = this;
-    //If directly connected forward data
+    var this$ = this;
     if (this.peer_connections[address + ":" + port]) {
       this.peer_connections[address + ":" + port].send(buffer);
       callback();
-      //If directly connected forward data
     } else if (this.ws_connections_aliases[address + ":" + port]) {
       this.ws_connections_aliases[address + ":" + port].send(buffer);
       callback();
-      //If connection is pending, wait for promise to be fulfilled, then send data
     } else if (this.pending_peer_connections[address + ":" + port]) {
       this.pending_peer_connections[address + ":" + port].then(function(peer){
         this$.send(buffer, offset, length, port, address, callback);
@@ -11052,7 +11071,6 @@ function config (name) {
     }
   };
   x$.prepare_connection = function(initiator){
-    //Open a new connection. If no remote peer connects after peer_connection_timeout ms it is automatically destroyed
     var x$, peer_connection, this$ = this;
     debug('prepare connection, initiator: %s', initiator);
     setTimeout(function(){
@@ -11063,7 +11081,6 @@ function config (name) {
     x$ = peer_connection = simplePeer(Object.assign({}, this.simple_peer_opts, {
       initiator: initiator
     }));
-    console.trace("Creating new Connection");
     x$.on('connect', function(){
       var address, data;
       debug('peer connected: %s:%d', peer_connection.remoteAddress, peer_connection.remotePort);
@@ -11085,15 +11102,11 @@ function config (name) {
     x$.on('data', function(data){
       var data_decoded;
       if (debug.enabled) {
-        //debug('got data: %o, %s', data, data.toString());
-        //debug("more data: %s", JSON.stringify(bencode.decode(data)));
-        debug('got data: %o', data);
-
+        debug('got data: %o, %s', data, data.toString());
       }
       try {
         data_decoded = bencode.decode(data);
         if (data_decoded.ws_server) {
-          debug("has ws_server")
           peer_connection.ws_server = {
             host: data_decoded.ws_server.toString(),
             port: data_decoded.ws_server.port
@@ -11102,9 +11115,7 @@ function config (name) {
         }
       } catch (e$) {}
       if (Buffer.isBuffer(data)) {
-        debug("isBuffer")
-				debug('got data: %o, %s', data, data.toString());
-				this$.emit('message', data, {
+        this$.emit('message', data, {
           address: peer_connection.remoteAddress,
           port: peer_connection.remotePort
         });
@@ -11151,7 +11162,6 @@ function config (name) {
       return results$;
     }.call(this)).filter(Boolean);
   };
-  //Add peer_connection object to peer_connections array
   x$.__register_connection = function(peer_connection, host, port){
     var this$ = this;
     if (!host) {
@@ -11199,6 +11209,7 @@ function config (name) {
     if (!(this instanceof webtorrentDht)) {
       return new webtorrentDht(options);
     }
+    options = Object.assign({}, options);
     options.krpc = options.krpc || kRpcWebrtc(options);
     bittorrentDht.call(this, options);
   }
@@ -11209,7 +11220,6 @@ function config (name) {
     port == null && (port = 16881);
     address == null && (address = '127.0.0.1');
     this._rpc.bind(port, address, callback);
-    console.log('nodeId of this server: ' + this.nodeId.toString('hex'));
   };
   x$.toJSON = function(){
     return {

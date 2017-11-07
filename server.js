@@ -21,4 +21,7 @@
 	global.dht.on("warning", function (war) {
 		console.log(war);
 	});
+	global.dht.on("peer", (peer, infoHash, from) => {
+		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port)
+	});
 }).call(this);
