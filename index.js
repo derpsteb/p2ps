@@ -68,6 +68,7 @@ function lookup (link) {
 	this.dht.on("peer", (peer, infoHash, from) => {
 		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
 	});
+	this.dht.announce(link);
 	this.dht.lookup(link, (err, res) => {
 		console.log("errors: " + err);
 		if (res === null) {
@@ -76,7 +77,6 @@ function lookup (link) {
 			console.log("Retrieved value: " + res.toString());
 		}
 	});
-	this.dht.announce(link);
 }
 
 function createLink (hash) {
