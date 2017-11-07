@@ -3,16 +3,16 @@
 let DHT = require("webtorrent-dht");
 global.magnet = require("magnet-uri");
 global.buffer = require("buffer").Buffer;
-let inherits = require('inherits');
+global.bencode = require("bencode");
 global.startUp = startUp;
 startUp();
 global.retrieve = retrieve;
 global.save = save;
 global.showConnectedIds = showConnectedIds;
-global.testPing = testPing;
 global.lookup = lookup;
 global.showId = showId;
-global.testAnnounce = testAnnounce;
+global.nextOnRoute = nextOnRoute;
+global.testSend = testSend;
 
 function startUp () {
 	let options = {
@@ -42,8 +42,8 @@ function save (msgString) {
 }
 
 function retrieve (link) {
-	let hash = this.magnet.decode(link).infoHash;
-	this.dht.get(hash, (err, res) => {
+	//let hash = this.magnet.decode(link).infoHash;
+	this.dht.get(link, (err, res) => {
 		console.log("errors: " + err);
 		if (res === null) {
 			console.log("No Data found.");
@@ -53,29 +53,20 @@ function retrieve (link) {
 	});
 }
 
-function testAnnounce(hash){
-	this.dht.announce(hash, (err) => {
-		if(err !== null){
-			console.log("Error: " + err);
-		}else{
-			console.log("testAnnounce successfully completed");
-		}
-	});
-}
-
 function lookup (link) {
 	//let hash = this.magnet.decode(link).infoHash;
 	this.dht.on("peer", (peer, infoHash, from) => {
-		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
+		console.log("found potential peer " + JSON.stringify(peer));
 	});
-	this.dht.announce(link);
-	this.dht.lookup(link, (err, res) => {
-		console.log("errors: " + err);
-		if (res === null) {
-			console.log("No Data found.");
-		} else {
-			console.log("Retrieved value: " + res.toString());
-		}
+	this.dht.announce(link, () => {
+		this.dht.lookup(link, (err, res) => {
+			console.log("errors: " + err);
+			if (res === null) {
+				console.log("No Data found.");
+			} else {
+				console.log("Retrieved value: " + res.toString());
+			}
+		});
 	});
 }
 
@@ -127,17 +118,42 @@ function customOnQuery (query, peer) {
 		console.log("putttyyyyy");
 		return global.dht._onput(query, peer);
 
-	case "custom":
-		return null;
-	}
-}
+	case "peer_connection":
+		console.log("dude, we can do this!");
+		console.log(JSON.stringify(peer));
+		break;
 
-function testPing(nodeId){
-	this.dht._sendPing(nodeId, (idk, response) => {
-		console.log(`Pong: ${JSON.stringify(response)}`);
-	});
+	case "custom": {
+		console.log("I GOT THIS!");
+		let targetId = global.buffer.from(query.a).toString();
+		testSend(targetId);
+		break;
+	}
+	}
 }
 
 function showId(){
 	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
+}
+
+function nextOnRoute(target){
+	//@param target String
+	//Return next node on route to target or true if this is the target
+	if(global.dht.nodeId.toString("hex") === target){
+		return false;
+	} else {
+		let targetBuffer = global.buffer.from(target);
+		return global.dht.nodes.closest(targetBuffer);
+	}
+}
+
+function testSend(targetId) {
+	let nextTarget = nextOnRoute(targetId);
+	if (!nextTarget) {
+		console.log("Reached Target");
+	} else {
+		let nextPeer = global.dht._rpc.socket.socket.get_id_mapping(nextTarget[0].id.toString("hex"));
+		let msg = {y: "q", q: "custom", a: targetId};
+		nextPeer.send(global.bencode.encode(msg));
+	}
 }

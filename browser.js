@@ -3062,16 +3062,16 @@ function hasOwnProperty(obj, prop) {
 let DHT = require("webtorrent-dht");
 global.magnet = require("magnet-uri");
 global.buffer = require("buffer").Buffer;
-let inherits = require('inherits');
+global.bencode = require("bencode");
 global.startUp = startUp;
 startUp();
 global.retrieve = retrieve;
 global.save = save;
 global.showConnectedIds = showConnectedIds;
-global.testPing = testPing;
 global.lookup = lookup;
 global.showId = showId;
-global.testAnnounce = testAnnounce;
+global.nextOnRoute = nextOnRoute;
+global.testSend = testSend;
 
 function startUp () {
 	let options = {
@@ -3101,8 +3101,8 @@ function save (msgString) {
 }
 
 function retrieve (link) {
-	let hash = this.magnet.decode(link).infoHash;
-	this.dht.get(hash, (err, res) => {
+	//let hash = this.magnet.decode(link).infoHash;
+	this.dht.get(link, (err, res) => {
 		console.log("errors: " + err);
 		if (res === null) {
 			console.log("No Data found.");
@@ -3112,29 +3112,20 @@ function retrieve (link) {
 	});
 }
 
-function testAnnounce(hash){
-	this.dht.announce(hash, (err) => {
-		if(err !== null){
-			console.log("Error: " + err);
-		}else{
-			console.log("testAnnounce successfully completed");
-		}
-	});
-}
-
 function lookup (link) {
 	//let hash = this.magnet.decode(link).infoHash;
 	this.dht.on("peer", (peer, infoHash, from) => {
-		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
+		console.log("found potential peer " + JSON.stringify(peer));
 	});
-	this.dht.announce(link);
-	this.dht.lookup(link, (err, res) => {
-		console.log("errors: " + err);
-		if (res === null) {
-			console.log("No Data found.");
-		} else {
-			console.log("Retrieved value: " + res.toString());
-		}
+	this.dht.announce(link, () => {
+		this.dht.lookup(link, (err, res) => {
+			console.log("errors: " + err);
+			if (res === null) {
+				console.log("No Data found.");
+			} else {
+				console.log("Retrieved value: " + res.toString());
+			}
+		});
 	});
 }
 
@@ -3186,22 +3177,47 @@ function customOnQuery (query, peer) {
 		console.log("putttyyyyy");
 		return global.dht._onput(query, peer);
 
-	case "custom":
-		return null;
-	}
-}
+	case "peer_connection":
+		console.log("dude, we can do this!");
+		console.log(JSON.stringify(peer));
+		break;
 
-function testPing(nodeId){
-	this.dht._sendPing(nodeId, (idk, response) => {
-		console.log(`Pong: ${JSON.stringify(response)}`);
-	});
+	case "custom": {
+		console.log("I GOT THIS!");
+		let targetId = global.buffer.from(query.a).toString();
+		testSend(targetId);
+		break;
+	}
+	}
 }
 
 function showId(){
 	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
 }
+
+function nextOnRoute(target){
+	//@param target String
+	//Return next node on route to target or true if this is the target
+	if(global.dht.nodeId.toString("hex") === target){
+		return false;
+	} else {
+		let targetBuffer = global.buffer.from(target);
+		return global.dht.nodes.closest(targetBuffer);
+	}
+}
+
+function testSend(targetId) {
+	let nextTarget = nextOnRoute(targetId);
+	if (!nextTarget) {
+		console.log("Reached Target");
+	} else {
+		let nextPeer = global.dht._rpc.socket.socket.get_id_mapping(nextTarget[0].id.toString("hex"));
+		let msg = {y: "q", q: "custom", a: targetId};
+		nextPeer.send(global.bencode.encode(msg));
+	}
+}
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"buffer":4,"inherits":27,"magnet-uri":35,"webtorrent-dht":58}],13:[function(require,module,exports){
+},{"bencode":15,"buffer":4,"magnet-uri":35,"webtorrent-dht":58}],13:[function(require,module,exports){
 (function (Buffer){
 const INTEGER_START = 0x69 // 'i'
 const STRING_DELIM = 0x3A // ':'
@@ -3542,13 +3558,9 @@ function DHT (opts) {
   this._rpc.on('error', onerror)
   this._rpc.on('listening', onlistening)
 
-  console.log("imhere")
-  this.on("peer", (peer, infoHash, from) => {
-		console.log("found potential peer " + peer.host + ":" + peer.port + " through " + from.address + ":" + from.port);
-	});
 
   this._rotateSecrets()
-  this._verify = opts.verify || null
+  thihttps://github.com/webtorrent/bittorrent-dht/blob/4fe6852a3367b585f3954255b38aa1a5aa63b6be/client.js#L345s._verify = opts.verify || null
   this._host = opts.host || null
   this._interval = setInterval(rotateSecrets, ROTATE_INTERVAL)
   this._hash = opts.hash || sha1
@@ -5781,7 +5793,7 @@ function RPC (opts) {
 
     var type = message && message.y && message.y.toString()
 
-		console.log("received message in k-rpc-socket with type " + type);
+		console.log("received message " + JSON.stringify(message) + " in k-rpc-socket with type " + type);
 
     if (type === 'r' || type === 'e') {
 			if (!Buffer.isBuffer(message.t)) return
@@ -6044,7 +6056,6 @@ RPC.prototype.address = function () {
 }
 
 RPC.prototype.queryAll = function (nodes, message, visit, cb) {
-  console.trace();
   if (!message.a) message.a = {}
   if (!message.a.id) message.a.id = this.id
 
@@ -10567,7 +10578,6 @@ function config (name) {
   inherits(kRpcSocketWebrtc, noop);
   x$ = kRpcSocketWebrtc.prototype;
   x$.send = function(peer, message, callback){
-    debug('send to peer: %o, tmp: %s ', arguments, JSON.stringify(message));
     kRpcSocket.prototype.send.call(this, peer, message, callback);
   };
   x$.response = function(peer, query, response, callback){
@@ -11102,7 +11112,8 @@ function config (name) {
     x$.on('data', function(data){
       var data_decoded;
       if (debug.enabled) {
-        debug('got data: %o, %s', data, data.toString());
+				debug('got data: %o', data);
+        // debug('got data: %o, %s', data, data.toString());
       }
       try {
         data_decoded = bencode.decode(data);
