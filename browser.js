@@ -3060,16 +3060,18 @@ function hasOwnProperty(obj, prop) {
 "use strict";
 
 const webtorrentDht = require("./webtorrentDhtExtension");
+const DHT = require("webtorrent-dht");
 global.magnet = require("magnet-uri");
 global.buffer = require("buffer").Buffer;
 global.bencode = require("bencode");
+const inherits = require("inherits");
 global.startUp = startUp;
 startUp();
 // global.retrieve = retrieve;
 // global.save = save;
-// global.showConnectedIds = showConnectedIds;
+global.showConnectedIds = showConnectedIds;
 // global.lookup = lookup;
-// global.showId = showId;
+global.showId = showId;
 // global.nextOnRoute = nextOnRoute;
 // global.testSend = testSend;
 
@@ -3138,12 +3140,12 @@ function startUp () {
 // 	list.appendChild(entry);
 // }
 //
-// function showConnectedIds () {
-// 	let dict = global.dht._rpc.socket.socket.peer_connections;
-// 	for (var key in dict) {
-// 		console.log(dict[key]["id"]);
-// 	}
-// }
+function showConnectedIds () {
+	let dict = global.dht._rpc.socket.socket.peer_connections;
+	for (var key in dict) {
+		console.log(dict[key]["id"]);
+	}
+}
 //
 // function customOnQuery (query, peer) {
 // 	console.log("received query in DHT.customOnQuery: " + query.q);
@@ -3190,33 +3192,11 @@ function startUp () {
 // 	}
 // }
 //
-// function showId(){
-// 	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
-// }
-//
-// function nextOnRoute(target){
-// 	//@param target String
-// 	//Return next node on route to target or true if this is the target
-// 	if(global.dht.nodeId.toString("hex") === target){
-// 		return false;
-// 	} else {
-// 		let targetBuffer = global.buffer.from(target);
-// 		return global.dht.nodes.closest(targetBuffer);
-// 	}
-// }
-//
-// function testSend(targetId) {
-// 	let nextTarget = nextOnRoute(targetId);
-// 	if (!nextTarget) {
-// 		console.log("Reached Target");
-// 	} else {
-// 		let nextPeer = global.dht._rpc.socket.socket.get_id_mapping(nextTarget[0].id.toString("hex"));
-// 		let msg = {y: "q", q: "custom", a: targetId};
-// 		nextPeer.send(global.bencode.encode(msg));
-// 	}
-// }
+function showId(){
+	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
+}
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./webtorrentDhtExtension":61,"bencode":15,"buffer":4,"magnet-uri":35}],13:[function(require,module,exports){
+},{"./webtorrentDhtExtension":61,"bencode":15,"buffer":4,"inherits":27,"magnet-uri":35,"webtorrent-dht":58}],13:[function(require,module,exports){
 (function (Buffer){
 const INTEGER_START = 0x69 // 'i'
 const STRING_DELIM = 0x3A // ':'
@@ -11274,77 +11254,79 @@ function extend() {
 const DHT = require("webtorrent-dht");
 const buffer = require("buffer").Buffer;
 const bencode = require("bencode");
+const inherits = require("inherits");
 
-class webtorrentDht{
-	constructor (options){
-		DHT.call(this, options);
-		this._onquery = this.customOnQuery;
-	}
 
-	nextOnRoute(target){
-		//@param target String
-		//Return next node on route to target or true if this is the target
-		if(this.nodeId.toString("hex") === target){
-			return false;
-		} else {
-			let targetBuffer = buffer.from(target);
-			return this.nodes.closest(targetBuffer);
-		}
-	}
-
-	testSend(targetId) {
-		let nextTarget = this.nextOnRoute(targetId);
-		if (!nextTarget) {
-			console.log("Reached Target");
-		} else {
-			let nextPeer = this._rpc.socket.socket.get_id_mapping(nextTarget[0].id.toString("hex"));
-			let msg = {y: "q", q: "custom", a: targetId};
-			nextPeer.send(bencode.encode(msg));
-		}
-	}
-
-	customOnQuery(query, peer) {
-		console.log("received query in DHT.customOnQuery: " + query.q);
-		let q = query.q.toString();
-		this._debug("received %s query from %s:%d", q, peer.address, peer.port);
-		if (!query.a) return;
-
-		switch (q) {
-		case "ping":
-			console.log("wtf");
-			return this._rpc.response(peer, query, {id: this._rpc.id});
-
-		case "find_node":
-			console.log("gimmemileftnut");
-			return this._onfindnode(query, peer);
-
-		case "get_peers":
-			console.log("getPeeeeeers:!!!");
-			return this._ongetpeers(query, peer);
-
-		case "announce_peer":
-			return this._onannouncepeer(query, peer);
-
-		case "get":
-			return this._onget(query, peer);
-
-		case "put":
-			console.log("putttyyyyy");
-			return this._onput(query, peer);
-
-		case "peer_connection":
-			console.log("dude, we can do this!");
-			console.log(JSON.stringify(peer));
-			break;
-
-		case "custom": {
-			console.log("I GOT THIS!");
-			let targetId = buffer.from(query.a).toString();
-			this.testSend(targetId);
-			break;
-		}
-		}
-	}
+function webtorrentDhtCustom(options) {
+	DHT.call(this, options);
 }
-module.exports = webtorrentDht;
-},{"bencode":15,"buffer":4,"webtorrent-dht":58}]},{},[12]);
+
+inherits(webtorrentDhtCustom, DHT);
+
+webtorrentDhtCustom.prototype.nextOnRoute = function(target){
+	//@param target String
+	//Return next node on route to target or true if this is the target
+	if(this.nodeId.toString("hex") === target){
+		return false;
+	} else {
+		let targetBuffer = buffer.from(target);
+		return this.nodes.closest(targetBuffer);
+	}
+};
+
+webtorrentDhtCustom.prototype.testSend = function(targetId) {
+	let nextTarget = this.nextOnRoute(targetId);
+	if (!nextTarget) {
+		console.log("Reached Target");
+	} else {
+		let nextPeer = this._rpc.socket.socket.get_id_mapping(nextTarget[0].id.toString("hex"));
+		let msg = {y: "q", q: "custom", a: targetId};
+		nextPeer.send(bencode.encode(msg));
+	}
+};
+
+webtorrentDhtCustom.prototype._onquery = function(query, peer) {
+	console.log("received query in DHT.customOnQuery: " + query.q);
+	let q = query.q.toString();
+	this._debug("received %s query from %s:%d", q, peer.address, peer.port);
+	if (!query.a) return;
+
+	switch (q) {
+	case "ping":
+		console.log("wtf");
+		return this._rpc.response(peer, query, {id: this._rpc.id});
+
+	case "find_node":
+		console.log("gimmemileftnut");
+		return this._onfindnode(query, peer);
+
+	case "get_peers":
+		console.log("getPeeeeeers:!!!");
+		return this._ongetpeers(query, peer);
+
+	case "announce_peer":
+		return this._onannouncepeer(query, peer);
+
+	case "get":
+		return this._onget(query, peer);
+
+	case "put":
+		console.log("putttyyyyy");
+		return this._onput(query, peer);
+
+	case "peer_connection":
+		console.log("dude, we can do this!");
+		console.log(JSON.stringify(peer));
+		break;
+
+	case "custom": {
+		console.log("I GOT THIS!");
+		let targetId = buffer.from(query.a).toString();
+		this.testSend(targetId);
+		break;
+	}
+	}
+};
+
+module.exports = webtorrentDhtCustom;
+},{"bencode":15,"buffer":4,"inherits":27,"webtorrent-dht":58}]},{},[12]);

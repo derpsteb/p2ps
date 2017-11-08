@@ -1,16 +1,18 @@
 "use strict";
 
 const webtorrentDht = require("./webtorrentDhtExtension");
+const DHT = require("webtorrent-dht");
 global.magnet = require("magnet-uri");
 global.buffer = require("buffer").Buffer;
 global.bencode = require("bencode");
+const inherits = require("inherits");
 global.startUp = startUp;
 startUp();
 // global.retrieve = retrieve;
 // global.save = save;
-// global.showConnectedIds = showConnectedIds;
+global.showConnectedIds = showConnectedIds;
 // global.lookup = lookup;
-// global.showId = showId;
+global.showId = showId;
 // global.nextOnRoute = nextOnRoute;
 // global.testSend = testSend;
 
@@ -79,12 +81,12 @@ function startUp () {
 // 	list.appendChild(entry);
 // }
 //
-// function showConnectedIds () {
-// 	let dict = global.dht._rpc.socket.socket.peer_connections;
-// 	for (var key in dict) {
-// 		console.log(dict[key]["id"]);
-// 	}
-// }
+function showConnectedIds () {
+	let dict = global.dht._rpc.socket.socket.peer_connections;
+	for (var key in dict) {
+		console.log(dict[key]["id"]);
+	}
+}
 //
 // function customOnQuery (query, peer) {
 // 	console.log("received query in DHT.customOnQuery: " + query.q);
@@ -131,6 +133,6 @@ function startUp () {
 // 	}
 // }
 //
-// function showId(){
-// 	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
-// }
+function showId(){
+	console.log(global.buffer.from(global.dht.nodeId).toString('hex'));
+}
